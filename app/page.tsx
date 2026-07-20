@@ -9,6 +9,8 @@ type ApplicationStatus =
   | "Rejected"
   | "Offer";
 
+type StatusFilter = "All" | ApplicationStatus;
+
 type JobApplication = {
   id: string;
   company: string;
@@ -29,6 +31,7 @@ const STATUS_OPTIONS: ApplicationStatus[] = [
 export default function Home() {
   const [applications, setApplications] = useState<JobApplication[]>([]);
   const [isStorageLoaded, setIsStorageLoaded] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
 
   const [company, setCompany] = useState("");
   const [position, setPosition] = useState("");
@@ -38,21 +41,26 @@ export default function Home() {
 
   // 페이지가 처음 열릴 때 브라우저에 저장된 지원 기록을 불러옵니다.
   useEffect(() => {
+    let savedApplications: JobApplication[] = [];
+
     try {
-      const savedApplications = localStorage.getItem("applyflow-applications");
+      const storedValue = localStorage.getItem("applyflow-applications");
 
-      if (savedApplications) {
-        const parsedApplications = JSON.parse(
-          savedApplications,
-        ) as JobApplication[];
-
-        setApplications(parsedApplications);
+      if (storedValue) {
+        savedApplications = JSON.parse(storedValue) as JobApplication[];
       }
     } catch (error) {
       console.error("Failed to load applications:", error);
-    } finally {
-      setIsStorageLoaded(true);
     }
+
+    const timerId = window.setTimeout(() => {
+      setApplications(savedApplications);
+      setIsStorageLoaded(true);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
   }, []);
 
   // applications가 변경될 때마다 브라우저에 다시 저장합니다.
@@ -107,7 +115,9 @@ export default function Home() {
   }
 
   function handleDelete(id: string) {
-    const shouldDelete = window.confirm("Do you want to delete?");
+    const shouldDelete = window.confirm(
+      "Are you sure you want to delete this application?",
+    );
 
     if (!shouldDelete) {
       return;
@@ -117,6 +127,51 @@ export default function Home() {
       currentApplications.filter((application) => application.id !== id),
     );
   }
+
+  const visibleApplications = [...applications]
+    .filter((application) => {
+      if (statusFilter === "All") {
+        return true;
+      }
+
+      return application.status === statusFilter;
+    })
+    .sort((firstApplication, secondApplication) => {
+      // Interested 탭에서는 마감일이 가까운 공고부터 정렬
+      if (statusFilter === "Interested") {
+        const firstDeadline = firstApplication.deadline;
+        const secondDeadline = secondApplication.deadline;
+
+        // 둘 다 마감일이 없으면 회사 이름순
+        if (!firstDeadline && !secondDeadline) {
+          return firstApplication.company.localeCompare(
+            secondApplication.company,
+          );
+        }
+
+        // 첫 번째 공고에 마감일이 없으면 아래로
+        if (!firstDeadline) {
+          return 1;
+        }
+
+        // 두 번째 공고에 마감일이 없으면 아래로
+        if (!secondDeadline) {
+          return -1;
+        }
+
+        // 마감일이 같으면 회사 이름순
+        if (firstDeadline === secondDeadline) {
+          return firstApplication.company.localeCompare(
+            secondApplication.company,
+          );
+        }
+
+        return firstDeadline.localeCompare(secondDeadline);
+      }
+
+      // 나머지 탭에서는 회사 이름 A–Z 순
+      return firstApplication.company.localeCompare(secondApplication.company);
+    });
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-10 text-slate-900">
@@ -150,7 +205,7 @@ export default function Home() {
                   type="text"
                   value={company}
                   onChange={(event) => setCompany(event.target.value)}
-                  placeholder="Ex. Google, NVDIA, META ..."
+                  placeholder="Ex. Google, NVIDIA, Meta ..."
                   className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
               </label>
@@ -222,28 +277,58 @@ export default function Home() {
           </form>
 
           <div>
-            <div className="mb-4 flex items-end justify-between">
+            <div className="mb-5 space-y-4">
               <div>
                 <h2 className="text-2xl font-bold">My applications</h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  {applications.length} application
-                  {applications.length === 1 ? "" : "s"} recorded
+                  Showing {visibleApplications.length} of {applications.length}{" "}
+                  applications
                 </p>
               </div>
+
+              <div className="flex flex-wrap gap-2">
+                {(["All", ...STATUS_OPTIONS] as StatusFilter[]).map(
+                  (filterOption) => (
+                    <button
+                      key={filterOption}
+                      type="button"
+                      onClick={() => setStatusFilter(filterOption)}
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                        statusFilter === filterOption
+                          ? "bg-blue-600 text-white"
+                          : "bg-white text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      {filterOption}
+                    </button>
+                  ),
+                )}
+              </div>
+
+              <p className="text-xs text-slate-500">
+                {statusFilter === "Interested"
+                  ? "Sorted by the nearest deadline."
+                  : "Sorted alphabetically by company."}
+              </p>
             </div>
 
-            {applications.length === 0 ? (
+            {visibleApplications.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
-                <p className="text-lg font-semibold">No applications yet</p>
+                <p className="text-lg font-semibold">
+                  No {statusFilter === "All" ? "" : statusFilter.toLowerCase()}{" "}
+                  applications
+                </p>
 
                 <p className="mt-2 text-sm text-slate-500">
-                  Add your first job application using the form.
+                  {statusFilter === "All"
+                    ? "Add your first job application using the form."
+                    : `There are no applications with the ${statusFilter} status.`}
                 </p>
               </div>
             ) : (
               <div className="space-y-4">
-                {applications.map((application) => (
+                {visibleApplications.map((application) => (
                   <article
                     key={application.id}
                     className="rounded-2xl bg-white p-5 shadow-sm"
