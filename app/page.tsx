@@ -11,12 +11,15 @@ type ApplicationStatus =
 
 type StatusFilter = "All" | ApplicationStatus;
 
+type InterestedSortOption = "deadline" | "postedDate";
+
 type JobApplication = {
   id: string;
   company: string;
   position: string;
   status: ApplicationStatus;
-  deadline: string;
+  postedDate?: string;
+  deadline?: string;
   jobUrl: string;
 };
 
@@ -28,16 +31,40 @@ const STATUS_OPTIONS: ApplicationStatus[] = [
   "Offer",
 ];
 
+function compareOptionalDates(
+  firstDate?: string | null,
+  secondDate?: string | null,
+) {
+  if (firstDate && secondDate) {
+    return firstDate.localeCompare(secondDate);
+  }
+
+  if (firstDate && !secondDate) {
+    return -1;
+  }
+
+  if (!firstDate && secondDate) {
+    return 1;
+  }
+
+  return 0;
+}
+
 export default function Home() {
   const [applications, setApplications] = useState<JobApplication[]>([]);
   const [isStorageLoaded, setIsStorageLoaded] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
+  const [interestedSort, setInterestedSort] =
+    useState<InterestedSortOption>("deadline");
 
   const [company, setCompany] = useState("");
   const [position, setPosition] = useState("");
-  const [status, setStatus] = useState<ApplicationStatus>("Interested");
-  const [deadline, setDeadline] = useState("");
+  const [status, setStatus] = useState<ApplicationStatus | "">("");
+  const [postedDate, setPostedDate] = useState<string | null>(null);
+  const [deadline, setDeadline] = useState<string | null>(null);
   const [jobUrl, setJobUrl] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   // 페이지가 처음 열릴 때 브라우저에 저장된 지원 기록을 불러옵니다.
   useEffect(() => {
@@ -75,11 +102,42 @@ export default function Home() {
     );
   }, [applications, isStorageLoaded]);
 
+  function resetForm() {
+    setCompany("");
+    setPosition("");
+    setStatus("");
+    setPostedDate(null);
+    setDeadline(null);
+    setJobUrl("");
+    setEditingId(null);
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!company.trim() || !position.trim()) {
-      alert("회사명과 직무명을 입력해주세요.");
+    if (!company.trim() || !position.trim() || !status) {
+      alert("Please complete all required fields.");
+      return;
+    }
+
+    if (editingId) {
+      setApplications((currentApplications) =>
+        currentApplications.map((application) =>
+          application.id === editingId
+            ? {
+                ...application,
+                company: company.trim(),
+                position: position.trim(),
+                status: status,
+                postedDate: postedDate || undefined,
+                deadline: deadline || undefined,
+                jobUrl: jobUrl.trim(),
+              }
+            : application,
+        ),
+      );
+
+      resetForm();
       return;
     }
 
@@ -88,7 +146,8 @@ export default function Home() {
       company: company.trim(),
       position: position.trim(),
       status,
-      deadline,
+      postedDate: postedDate || undefined,
+      deadline: deadline || undefined,
       jobUrl: jobUrl.trim(),
     };
 
@@ -97,21 +156,22 @@ export default function Home() {
       ...currentApplications,
     ]);
 
-    setCompany("");
-    setPosition("");
-    setStatus("Interested");
-    setDeadline("");
-    setJobUrl("");
+    resetForm();
   }
 
-  function handleStatusChange(id: string, newStatus: ApplicationStatus) {
-    setApplications((currentApplications) =>
-      currentApplications.map((application) =>
-        application.id === id
-          ? { ...application, status: newStatus }
-          : application,
-      ),
-    );
+  function handleEdit(application: JobApplication) {
+    setEditingId(application.id);
+    setCompany(application.company);
+    setPosition(application.position);
+    setStatus(application.status);
+    setPostedDate(application.postedDate ?? null);
+    setDeadline(application.deadline ?? null);
+    setJobUrl(application.jobUrl);
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }
 
   function handleDelete(id: string) {
@@ -126,6 +186,12 @@ export default function Home() {
     setApplications((currentApplications) =>
       currentApplications.filter((application) => application.id !== id),
     );
+
+    if (editingId === id) {
+      resetForm();
+    }
+
+    setOpenMenuId(null);
   }
 
   const visibleApplications = [...applications]
@@ -137,39 +203,54 @@ export default function Home() {
       return application.status === statusFilter;
     })
     .sort((firstApplication, secondApplication) => {
-      // Interested 탭에서는 마감일이 가까운 공고부터 정렬
       if (statusFilter === "Interested") {
-        const firstDeadline = firstApplication.deadline;
-        const secondDeadline = secondApplication.deadline;
-
-        // 둘 다 마감일이 없으면 회사 이름순
-        if (!firstDeadline && !secondDeadline) {
-          return firstApplication.company.localeCompare(
-            secondApplication.company,
+        if (interestedSort === "deadline") {
+          const deadlineComparison = compareOptionalDates(
+            firstApplication.deadline,
+            secondApplication.deadline,
           );
-        }
 
-        // 첫 번째 공고에 마감일이 없으면 아래로
-        if (!firstDeadline) {
-          return 1;
-        }
+          if (deadlineComparison !== 0) {
+            return deadlineComparison;
+          }
 
-        // 두 번째 공고에 마감일이 없으면 아래로
-        if (!secondDeadline) {
-          return -1;
-        }
-
-        // 마감일이 같으면 회사 이름순
-        if (firstDeadline === secondDeadline) {
-          return firstApplication.company.localeCompare(
-            secondApplication.company,
+          // Deadline이 같거나 둘 다 없으면 오래된 게시일 우선
+          const postedDateComparison = compareOptionalDates(
+            firstApplication.postedDate,
+            secondApplication.postedDate,
           );
+
+          if (postedDateComparison !== 0) {
+            return postedDateComparison;
+          }
         }
 
-        return firstDeadline.localeCompare(secondDeadline);
+        if (interestedSort === "postedDate") {
+          const postedDateComparison = compareOptionalDates(
+            firstApplication.postedDate,
+            secondApplication.postedDate,
+          );
+
+          if (postedDateComparison !== 0) {
+            return postedDateComparison;
+          }
+
+          // 게시일이 같거나 둘 다 없으면 가까운 마감일 우선
+          const deadlineComparison = compareOptionalDates(
+            firstApplication.deadline,
+            secondApplication.deadline,
+          );
+
+          if (deadlineComparison !== 0) {
+            return deadlineComparison;
+          }
+        }
+
+        return firstApplication.company.localeCompare(
+          secondApplication.company,
+        );
       }
 
-      // 나머지 탭에서는 회사 이름 A–Z 순
       return firstApplication.company.localeCompare(secondApplication.company);
     });
 
@@ -193,47 +274,62 @@ export default function Home() {
             onSubmit={handleSubmit}
             className="h-fit rounded-2xl bg-white p-6 shadow-sm"
           >
-            <h2 className="mb-6 text-xl font-bold">Add an application</h2>
+            <h2 className="mb-1 text-xl font-bold">
+              {editingId ? "Edit application" : "Add an application"}
+            </h2>
+
+            <p className="mb-5 text-sm text-slate-500">
+              Fields marked with{" "}
+              <span className="font-semibold text-red-500">*</span> are
+              required.
+            </p>
 
             <div className="space-y-5">
               <label className="block">
-                <span className="mb-2 block text-sm font-medium">
-                  Company *
+                <span className="mb-1 block text-sm font-medium">
+                  Company <span className="text-red-500">*</span>
                 </span>
 
                 <input
                   type="text"
                   value={company}
                   onChange={(event) => setCompany(event.target.value)}
-                  placeholder="Ex. Google, NVIDIA, Meta ..."
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  required
+                  className="w-full rounded-lg border border-slate-300 h-12 px-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium">
-                  Position *
+                <span className="mb-1 block text-sm font-medium">
+                  Position <span className="text-red-500">*</span>
                 </span>
 
                 <input
                   type="text"
                   value={position}
                   onChange={(event) => setPosition(event.target.value)}
-                  placeholder="Cloud Infrastructure Engineer"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  required
+                  className="w-full rounded-lg border border-slate-300 h-12 px-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium">Status</span>
+                <span className="mb-1 block text-sm font-medium">
+                  Status <span className="text-red-500">*</span>
+                </span>
 
                 <select
                   value={status}
                   onChange={(event) =>
                     setStatus(event.target.value as ApplicationStatus)
                   }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  required
+                  className="h-12 px-6 w-full rounded-lg border border-slate-300 bg-white outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 >
+                  <option value="" disabled>
+                    Select a status
+                  </option>
+
                   {STATUS_OPTIONS.map((statusOption) => (
                     <option key={statusOption} value={statusOption}>
                       {statusOption}
@@ -242,19 +338,82 @@ export default function Home() {
                 </select>
               </label>
 
-              <label className="block">
-                <span className="mb-2 block text-sm font-medium">Deadline</span>
+              <div>
+                <label
+                  htmlFor="postedDate"
+                  className="mb-1 block text-sm font-medium"
+                >
+                  Posted date
+                </label>
 
-                <input
-                  type="date"
-                  value={deadline}
-                  onChange={(event) => setDeadline(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                />
-              </label>
+                {postedDate === null ? (
+                  <button
+                    type="button"
+                    onClick={() => setPostedDate("")}
+                    className="h-12 w-full rounded-lg border border-dashed border-slate-300 px-4 text-left text-sm text-slate-500 transition hover:border-blue-400 hover:bg-blue-50"
+                  >
+                    + Add posted date
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      id="postedDate"
+                      type="date"
+                      value={postedDate}
+                      onChange={(event) => setPostedDate(event.target.value)}
+                      className="h-12 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setPostedDate(null)}
+                      className="rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label
+                  htmlFor="deadline"
+                  className="mb-1 block text-sm font-medium"
+                >
+                  Deadline
+                </label>
+
+                {deadline === null ? (
+                  <button
+                    type="button"
+                    onClick={() => setDeadline("")}
+                    className="h-12 w-full rounded-lg border border-dashed border-slate-300 px-4 text-left text-sm text-slate-500 transition hover:border-blue-400 hover:bg-blue-50"
+                  >
+                    + Add deadline
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      id="deadline"
+                      type="date"
+                      value={deadline}
+                      onChange={(event) => setDeadline(event.target.value)}
+                      className="h-12 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setDeadline(null)}
+                      className="rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </div>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium">
+                <span className="mb-1 block text-sm font-medium">
                   Job posting URL
                 </span>
 
@@ -263,15 +422,25 @@ export default function Home() {
                   value={jobUrl}
                   onChange={(event) => setJobUrl(event.target.value)}
                   placeholder="https://..."
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 h-12 px-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
               </label>
+
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="w-full rounded-lg border border-slate-300 px-4 py-3 font-semibold text-slate-600 transition hover:bg-slate-100"
+                >
+                  Cancel editing
+                </button>
+              )}
 
               <button
                 type="submit"
                 className="w-full rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white transition hover:bg-blue-700"
               >
-                Add application
+                {editingId ? "Save changes" : "Add application"}
               </button>
             </div>
           </form>
@@ -306,11 +475,31 @@ export default function Home() {
                 )}
               </div>
 
-              <p className="text-xs text-slate-500">
-                {statusFilter === "Interested"
-                  ? "Sorted by the nearest deadline."
-                  : "Sorted alphabetically by company."}
-              </p>
+              {statusFilter === "Interested" && (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <label
+                    htmlFor="interested-sort"
+                    className="text-sm font-medium text-slate-600"
+                  >
+                    Sort by
+                  </label>
+
+                  <select
+                    id="interested-sort"
+                    value={interestedSort}
+                    onChange={(event) =>
+                      setInterestedSort(
+                        event.target.value as InterestedSortOption,
+                      )
+                    }
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  >
+                    <option value="deadline">Deadline</option>
+
+                    <option value="postedDate">Posted date</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             {visibleApplications.length === 0 ? (
@@ -344,7 +533,11 @@ export default function Home() {
                         </h3>
 
                         <p className="mt-2 text-sm text-slate-500">
-                          Deadline: {application.deadline || "Not set"}
+                          Posted: {application.postedDate || "Not recorded"}
+                        </p>
+
+                        <p className="mt-1 text-sm text-slate-500">
+                          Deadline: {application.deadline || "Not listed"}
                         </p>
 
                         {application.jobUrl && (
@@ -359,31 +552,49 @@ export default function Home() {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={application.status}
-                          onChange={(event) =>
-                            handleStatusChange(
-                              application.id,
-                              event.target.value as ApplicationStatus,
-                            )
-                          }
-                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-                        >
-                          {STATUS_OPTIONS.map((statusOption) => (
-                            <option key={statusOption} value={statusOption}>
-                              {statusOption}
-                            </option>
-                          ))}
-                        </select>
+                      <div className="relative flex items-center gap-1">
+                        <span className="text-sm font-bold text-slate-700">
+                          {application.status}
+                        </span>
 
                         <button
                           type="button"
-                          onClick={() => handleDelete(application.id)}
-                          className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50"
+                          aria-label={`Open actions for ${application.company}`}
+                          aria-expanded={openMenuId === application.id}
+                          onClick={() =>
+                            setOpenMenuId((currentId) =>
+                              currentId === application.id
+                                ? null
+                                : application.id,
+                            )
+                          }
+                          className="flex h-8 w-5 items-center justify-center rounded-full text-xl font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
                         >
-                          Delete
+                          ⋮
                         </button>
+
+                        {openMenuId === application.id && (
+                          <div className="absolute right-0 top-11 z-10 w-20 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleEdit(application);
+                                setOpenMenuId(null);
+                              }}
+                              className="w-full px-4 py-2 text-left text-sm text-blue-700 transition hover:bg-slate-50"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(application.id)}
+                              className="w-full px-4 py-2 text-left text-sm text-red-600 transition hover:bg-red-50"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </article>
