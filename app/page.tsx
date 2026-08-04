@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 type ApplicationStatus =
   | "Interested"
@@ -52,6 +52,49 @@ function compareOptionalDates(
   return 0;
 }
 
+function ExpandableNote({ note }: { note: string }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [canExpand, setCanExpand] = useState(false);
+  const noteRef = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    const noteElement = noteRef.current;
+
+    if (!noteElement || isExpanded) {
+      return;
+    }
+
+    setCanExpand(noteElement.scrollHeight > noteElement.clientHeight);
+  }, [note, isExpanded]);
+
+  return (
+    <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Note
+      </p>
+
+      <p
+        ref={noteRef}
+        className={`mt-1 whitespace-pre-wrap text-sm leading-5 text-slate-600 ${
+          isExpanded ? "" : "line-clamp-5"
+        }`}
+      >
+        {note}
+      </p>
+
+      {canExpand && (
+        <button
+          type="button"
+          onClick={() => setIsExpanded((currentValue) => !currentValue)}
+          className="mt-2 text-sm font-medium text-blue-600 hover:underline"
+        >
+          {isExpanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
   const [applications, setApplications] = useState<JobApplication[]>([]);
   const [isStorageLoaded, setIsStorageLoaded] = useState(false);
@@ -65,6 +108,7 @@ export default function Home() {
   const [postedDate, setPostedDate] = useState<string | null>(null);
   const [deadline, setDeadline] = useState<string | null>(null);
   const [jobUrl, setJobUrl] = useState("");
+  const [note, setNote] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -112,6 +156,7 @@ export default function Home() {
     setPostedDate(null);
     setDeadline(null);
     setJobUrl("");
+    setNote("");
     setEditingId(null);
   }
 
@@ -145,6 +190,7 @@ export default function Home() {
                 postedDate: postedDate || undefined,
                 deadline: deadline || undefined,
                 jobUrl: jobUrl.trim(),
+                note: note.trim() || undefined,
               }
             : application,
         ),
@@ -162,6 +208,7 @@ export default function Home() {
       postedDate: postedDate || undefined,
       deadline: deadline || undefined,
       jobUrl: jobUrl.trim(),
+      note: note.trim() || undefined,
     };
 
     setApplications((currentApplications) => [
@@ -180,6 +227,7 @@ export default function Home() {
     setPostedDate(application.postedDate ?? null);
     setDeadline(application.deadline ?? null);
     setJobUrl(application.jobUrl);
+    setNote(application.note ?? "");
 
     setIsFormOpen(true);
   }
@@ -392,6 +440,10 @@ export default function Home() {
                         >
                           Open job posting ↗
                         </a>
+                      )}
+
+                      {application.note && (
+                        <ExpandableNote note={application.note} />
                       )}
                     </div>
 
@@ -624,6 +676,18 @@ export default function Home() {
                     onChange={(event) => setJobUrl(event.target.value)}
                     placeholder="https://..."
                     className="h-12 w-full rounded-lg border border-slate-300 px-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Note</span>
+
+                  <textarea
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    placeholder="Add reminders, referral details, resume changes, or interview notes..."
+                    rows={4}
+                    className="w-full resize-y rounded-lg border border-slate-300 px-3 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   />
                 </label>
 
